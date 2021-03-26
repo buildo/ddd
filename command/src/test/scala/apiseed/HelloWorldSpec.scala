@@ -5,25 +5,30 @@ import munit.FunSuite
 class ConfirmReservationTest extends FunSuite {
   test("A customer can confirm a reservation for an available seat") {
     val seat = Seat(Row(1), SeatNumber(1))
-    val confirmReservation = ConfirmReservation(seats = List(seat), screening = Screening())
-    val events = List()
-    val handler = ConfirmReservationHandler.create(events)
-    val returnedEvents = handler.handle(confirmReservation)
-    val expectedEvents = List(
-      ReservationConfirmed(),
-      SeatTaken(Seat(Row(1), SeatNumber(1))),
+    confirmReservationCommandHandlerTest(
+      given = List(),
+      _when = ConfirmReservation(seats = List(seat), screening = Screening()),
+      _then = List(ReservationConfirmed(), SeatTaken(Seat(Row(1), SeatNumber(1)))),
     )
-    assertEquals(returnedEvents, expectedEvents)
   }
 
   test("A customer cannot confirm a reservation for an unavailable seat") {
     val seat = Seat(Row(1), SeatNumber(1))
-    val confirmReservation = ConfirmReservation(seats = List(seat), screening = Screening())
-    val events = List(SeatTaken(seat))
-    val handler = ConfirmReservationHandler.create(events)
-    val returnedEvents = handler.handle(confirmReservation)
-    val expectedEvents = List(ReservationFailed(unavailableSeats = List(seat)))
-    assertEquals(returnedEvents, expectedEvents)
+    confirmReservationCommandHandlerTest(
+      given = List(SeatTaken(seat)),
+      _when = ConfirmReservation(seats = List(seat), screening = Screening()),
+      _then = List(ReservationFailed(unavailableSeats = List(seat))),
+    )
+  }
+
+  private def confirmReservationCommandHandlerTest(
+    given: List[Event],
+    _when: ConfirmReservation,
+    _then: List[Event],
+  ): Unit = {
+    val handler = ConfirmReservationHandler.create(given)
+    val returnedEvents = handler.handle(_when)
+    assertEquals(returnedEvents, _then)
   }
 }
 
@@ -71,6 +76,7 @@ trait AvailableSeats {
 }
 
 object AvailableSeats {
+
   def create(events: List[Event]) = new AvailableSeats {
     private val takenSeats = events.collect { case SeatTaken(s) => s }
     override def seatIsAvailable(seat: Seat): Boolean = !takenSeats.contains(seat)
