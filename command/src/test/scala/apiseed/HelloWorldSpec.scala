@@ -6,23 +6,32 @@ class ConfirmReservationTest extends FunSuite {
   test("A customer can confirm a reservation for an available seat") {
     val seat = Seat(Row(1), SeatNumber(1))
     val confirmReservation = ConfirmReservation(seats = List(seat), screening = Screening())
-    val availableSeats = List(seat)
-    val handler = ConfirmReservationHandler.create(availableSeats)
-    val result = handler.handle(confirmReservation)
-    val expectedResult = Right(ReservationReceipt())
-    assertEquals(result, expectedResult)
+    val events = List()
+    val handler = ConfirmReservationHandler.create(events)
+    val returnedEvents = handler.handle(confirmReservation)
+    val expectedEvents = List(
+      ReservationConfirmed(),
+      SeatTaken(Seat(Row(1), SeatNumber(1))),
+    )
+    assertEquals(returnedEvents, expectedEvents)
   }
 
   test("A customer cannot confirm a reservation for an unavailable seat") {
     val seat = Seat(Row(1), SeatNumber(1))
     val confirmReservation = ConfirmReservation(seats = List(seat), screening = Screening())
-    val availableSeats = List()
-    val handler = ConfirmReservationHandler.create(availableSeats)
-    val result = handler.handle(confirmReservation)
-    val expectedResult = Left(UnavailableSeats(List(seat)))
-    assertEquals(result, expectedResult)
+    val events = List(SeatTaken(seat))
+    val handler = ConfirmReservationHandler.create(events)
+    val returnedEvents = handler.handle(confirmReservation)
+    val expectedEvents = List(ReservationFailed(unavailableSeats = List(seat)))
+    assertEquals(returnedEvents, expectedEvents)
   }
 }
+
+sealed trait Event
+
+case class SeatTaken(seat: Seat) extends Event
+case class ReservationConfirmed() extends Event
+case class ReservationFailed(unavailableSeats: List[Seat]) extends Event
 
 // can make constructor private to enforce valid data
 case class Row(value: Int) extends AnyVal
@@ -37,25 +46,33 @@ case class ConfirmReservation(
   screening: Screening,
 )
 
-case class UnavailableSeats(seats: List[Seat])
-
-case class ReservationReceipt()
-
 trait ConfirmReservationHandler {
-  def handle(confirmReservation: ConfirmReservation): Either[UnavailableSeats, ReservationReceipt]
+  def handle(events: ConfirmReservation): List[Event]
 }
 
 object ConfirmReservationHandler {
-  def create(availableSeats: List[Seat]) = new ConfirmReservationHandler {
+  def create(events: List[Event]) = new ConfirmReservationHandler {
     override def handle(
       confirmReservation: ConfirmReservation,
-    ): Either[UnavailableSeats, ReservationReceipt] = {
-      val unavailableSeats =
-        confirmReservation.seats.filterNot(seat => availableSeats.contains(seat))
-      if (unavailableSeats.nonEmpty)
-        Left(UnavailableSeats(List(unavailableSeats)))
+    ): List[Event] = {
+      val availableSeats = AvailableSeats.create(events)
+      val unavailableSeatsInReservation =
+        confirmReservation.seats.filterNot(availableSeats.seatIsAvailable)
+      if (unavailableSeatsInReservation.nonEmpty)
+        List(ReservationFailed(unavailableSeats = unavailableSeatsInReservation))
       else
-        Right(ReservationReceipt())
+        ReservationConfirmed() :: confirmReservation.seats.map(s => SeatTaken(s))
     }
+  }
+}
+
+trait AvailableSeats {
+  def seatIsAvailable(seat: Seat): Boolean
+}
+
+object AvailableSeats {
+  def create(events: List[Event]) = new AvailableSeats {
+    private val takenSeats = events.collect { case SeatTaken(s) => s }
+    override def seatIsAvailable(seat: Seat): Boolean = !takenSeats.contains(seat)
   }
 }
