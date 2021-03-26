@@ -21,6 +21,19 @@ class ConfirmReservationTest extends FunSuite {
     )
   }
 
+  test("A customer can see available seats") {
+    val seat11 = Seat(Row(1), SeatNumber(1))
+    val seat12 = Seat(Row(1), SeatNumber(2))
+    val events = List(
+      ScreeningScheduled(seats = List(seat11, seat12)),
+      SeatTaken(seat11),
+    )
+    val readModel = AvailableSeatsReadModel.create(events)
+    val availableSeats = readModel.availableSeats()
+    val expectedAvailableSeats = List(seat12)
+    assertEquals(availableSeats, expectedAvailableSeats)
+  }
+
   private def confirmReservationCommandHandlerTest(
     given: List[Event],
     _when: ConfirmReservation,
@@ -34,6 +47,7 @@ class ConfirmReservationTest extends FunSuite {
 
 sealed trait Event
 
+case class ScreeningScheduled(seats: List[Seat]) extends Event
 case class SeatTaken(seat: Seat) extends Event
 case class ReservationConfirmed() extends Event
 case class ReservationFailed(unavailableSeats: List[Seat]) extends Event
@@ -76,9 +90,24 @@ trait AvailableSeats {
 }
 
 object AvailableSeats {
-
   def create(events: List[Event]) = new AvailableSeats {
     private val takenSeats = events.collect { case SeatTaken(s) => s }
     override def seatIsAvailable(seat: Seat): Boolean = !takenSeats.contains(seat)
+  }
+}
+
+trait AvailableSeatsReadModel {
+  def availableSeats(): List[Seat]
+}
+
+object AvailableSeatsReadModel {
+  def create(events: List[Event]) = new AvailableSeatsReadModel {
+    private val _availableSeats = {
+      // FIXME this ignores the order of events
+      val createdSeats = events.collect { case ScreeningScheduled(seats) => seats }.flatten
+      val takenSeats = events.collect { case SeatTaken(s) => s }
+      createdSeats.filterNot(takenSeats.contains)
+    }
+    override def availableSeats(): List[Seat] = _availableSeats
   }
 }
